@@ -1,0 +1,8 @@
+#! arm-none-eabi-gdb
+target extended-remote localhost:3333
+load
+monitor reset halt
+tbreak HardFault_Handler
+tbreak _exit
+tbreak main
+continue

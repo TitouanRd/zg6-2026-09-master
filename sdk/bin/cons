@@ -1,0 +1,458 @@
+#!/usr/bin/env tclsh
+
+package require Tk
+
+#################################################################
+#
+#  ITMConsole widget
+#
+#  Transform a text widget into an append console
+#
+#################################################################
+proc console {w args} {
+	if  {[llength $args] &1} {
+		run -code error "invalid number of arguments (should be even): $args"
+	}
+	
+	# create an object for the widget
+	::ITMConsole::new $w $args
+
+	# hide the original widget command from the interpreter:
+	interp hide {} $w
+	# Install the alias:
+	interp alias {} $w {} ::ITMConsole::instanceCmd $w
+	# return the original command:
+	return $w
+}
+
+namespace eval ITMConsole {
+	set console(app:version)		1.0
+	
+	# 1: bright colors, 2: standard colors
+	set ANSIColor {
+		1 {
+			30	{black	"#777777"}
+			31	{red	"#FF8787"}
+			32	{green	"#4CE64C"}
+			33	{yellow	"#DED82C"}
+			34	{blue	"#295FCC"}
+			35	{purple	"#CC58CC"}
+			36	{cyan	"#4CCCE6"}
+			37	{white	"#FFFFFF"}
+		}			
+		2 {
+			30	{black	"#000000"}
+			31	{red	"#AA0000"}
+			32	{green	"#44AA44"}
+			33	{yellow	"#AA5500"}
+			34	{blue	"#0039AA"}
+			35	{purple	"#AA22AA"}
+			36	{cyan	"#1A92AA"}
+			37	{white	"#AAAAAA"}
+		}
+	}
+
+	## array of standard VT100 cmds
+	array set VT100 {
+		Return		"\r\n"
+		Up			"\x1b[A"
+		Down		"\x1b[B"
+		Right		"\x1b[C"
+		Left		"\x1b[D"
+		Home		"\x1b[H"
+		End			"\x1b[F"
+		Insert		"\x1b[2~"
+		Delete		"\x1b[3~"
+		Prior		"\x1b[5~"
+		Next		"\x1b[6~"
+		F1			"\x1bOP"
+		F2			"\x1bOQ"
+		F3			"\x1bOR"
+		F4			"\x1bOS"
+		F5			"\x1b[15~"
+		F6			"\x1b[17~"
+		F7			"\x1b[18~"
+		F8			"\x1b[19~"
+		F9			"\x1b[20~"
+		F10			"\x1b[21~"
+		F11			"\x1b[23~"
+		F12			"\x1b[24~"
+		shift_L		""
+		shift_R		""
+		Caps_Lock	""
+		Num_Lock	""
+	}
+	
+	bind ITMConsole <Insert> [namespace code {
+	    catch {insert %W [::tk::GetSelection %W PRIMARY]}
+	}]
+	bind ITMConsole <KeyPress> [namespace code {
+		set wid [string range %W 0 end-2]
+		set obj ::ITMConsole::inst$wid
+		upvar $obj self
+		
+		if {[list %A] eq "" || [%W cget -state] eq "disabled"} {
+			return
+		}
+	#	%W delete sel.first sel.last
+	    %W insert end %A
+	    %W see end
+	}]
+	bind ITMConsole <Return> [namespace code {
+		# Return key entered -> push the line to the pipe for evaluation
+		set wid [string range %W 0 end-2]
+		set obj ::ITMConsole::inst$wid
+		upvar $obj self
+		puts "Return"
+		set data [%W get $self(epos) insert]
+		puts "SEND: $data"
+		%W insert end \n
+		set self(epos) [%W index insert]
+		puts $self(data:io) $data
+		flush $self(data:io)
+	}]
+	# Ignore all Alt, Meta, and Control keypresses unless explicitly bound.
+	# Otherwise, if a widget binding for one of these is defined, the
+	# <KeyPress> class binding will also fire and insert the character,
+	# which is wrong.  Ditto for <Escape>.
+	
+	bind ITMConsole <Alt-KeyPress> {# nothing }
+	bind ITMConsole <Meta-KeyPress> {# nothing}
+	bind ITMConsole <Control-KeyPress> {# nothing}
+	bind ITMConsole <Escape> {# nothing}
+#	bind ITMConsole <KP_Enter> {# nothing}
+	if {[tk windowingsystem] eq "aqua"} {
+	    bind ITMConsole <Command-KeyPress> {# nothing}
+	}
+	bind ITMConsole <Tab> {# nothing}
+	bind ITMConsole <Shift-Tab> {
+	    # Needed only to keep <Tab> binding from triggering;  doesn't
+	    # have to actually do anything.
+	    break
+	}
+	bind ITMConsole <Control-Tab> {
+	    focus [tk_focusNext %W]
+	}
+	bind ITMConsole <Control-Shift-Tab> {
+	    focus [tk_focusPrev %W]
+	}
+	if {[tk windowingsystem] eq "x11"} {
+		bind ITMConsole <2> [namespace code {
+			set obj ::ITMConsole::inst[string range %W 0 end-2]
+			upvar $obj self
+		}]
+		bind ITMConsole <3> {
+			puts "BTN3"
+		}
+		# Support for mousewheels on Linux/Unix commonly comes through mapping
+		# the wheel to the extended buttons.  If you have a mousewheel, find
+		# Linux configuration info at:
+		#	https://linuxreviews.org/HOWTO_change_the_mouse_speed_in_X
+		bind ITMConsole <4> {
+			if {!$tk_strictMotif} {
+				%W yview scroll -50 pixels
+			}
+		}
+		bind ITMConsole <5> {
+			if {!$tk_strictMotif} {
+				%W yview scroll 50 pixels
+			}
+		}
+	}
+	# Given x and y coordinates, this procedure finds the closest boundary
+	# between characters to the given coordinates and returns the index
+	# of the character just after the boundary.
+	#
+	# Arguments:
+	# w -		The text window.
+	# x -		X-coordinate within the window.
+	# y -		Y-coordinate within the window.
+	proc pos2index {w x y} {
+		set pos [$w index @$x,$y]
+		set bbox [$w bbox $pos]
+		if {$bbox eq ""} {
+			return $pos
+		}
+		if {($x - [lindex $bbox 0]) < ([lindex $bbox 2]/2)} {
+			return $pos
+		}
+		$w index "$pos + 1 char"
+	}
+	# This procedure is invoked to extend the selection, typically when
+	# dragging it with the mouse.  Depending on the selection mode (character,
+	# word, line) it selects in different-sized units.  This procedure
+	# ignores mouse motions initially until the mouse has moved from
+	# one character to another or until there have been multiple clicks.
+	#
+	# Note that the 'anchor' is implemented programmatically using
+	# a text widget mark.
+	#
+	# Arguments:
+	# w -		The text window in which the button was pressed.
+	# x -		Mouse x position.
+	# y - 		Mouse y position.
+	proc selectTo {obj w x y {extend 0}} {
+		upvar $obj self
+		
+		$w see insert
+		set cur [pos2index $w $x $y]
+		if {[catch {$w index anchor}]} {
+			$w mark set anchor insert
+		}
+		if {[catch {$w index lastpos}]} {
+			$w mark set lastpos insert
+		}
+		switch -- $self(mode) {
+			cmd {
+    			set p [$w tag prevrange prompt anchor 1.0]
+				if {$p ne "" && [$w compare $cur < [lindex $p 1]]} {
+					set cur [lindex $p 1]
+				} elseif {[$w compare $cur > "anchor lineend"]} {
+					set cur [$w index "anchor lineend"]
+				}
+			}
+			udf {
+    			set p [$w tag prevrange promptf anchor 1.0]
+ 				if {$p ne "" && [$w compare $cur < [lindex $p 1]]} {
+					set cur [lindex $p 1]
+				} elseif {[$w compare $cur > "anchor lineend"]} {
+					set cur [$w index "anchor lineend"]
+				} 
+			}
+			cmt {
+			}
+		}
+		if {[$w compare $cur < anchor]} {
+			set first $cur
+			set last anchor
+		} else {
+			set first anchor
+			set last $cur
+		}
+		if {[$w compare $cur != lastpos]} {
+			$w tag remove sel 0.0 end
+			$w mark set insert $cur
+			$w tag add sel $first $last
+			$w tag remove sel $last end
+			update idletasks
+		}
+	}
+}
+
+proc ITMConsole::instanceCmd {w cmd args} {
+	set obj ::ITMConsole::inst$w
+	upvar $obj self
+	
+	switch -- $cmd {
+		ctxt {
+			parray self
+		}
+		exit {
+			send $obj quit
+		}
+		focus {
+			focus $self(w:sh)
+		}
+		default {
+			$self(w:sh) $cmd {*}$args
+		}
+	}
+}
+
+proc ITMConsole::exit {obj} {
+	upvar $obj self
+
+	::exit
+}
+
+proc ITMConsole::send {obj cmd} {
+	upvar $obj self
+	
+	set t $self(w:sh)
+}
+
+proc ITMConsole::new {w args} {
+	variable	console
+	
+	# create new object
+	set obj ::ITMConsole::inst$w
+	upvar $obj self
+	
+	set self(port)		5555
+	
+	foreach {opt val} {*}$args {
+		switch -- $opt {
+			-tab {
+				set self(tab) $val
+			}
+			-port {
+				set self(port) $val
+			}
+			default {
+				set self(tab) $val
+			}
+		}
+	}
+	
+	set self(count)		0
+	set self(cnt)		0
+	set self(epos)		1.0
+	set self(tagcur)	std
+	set self(tagcnt)	0
+	set self(tagprop)	{}
+	
+	# create the "base"  widget for the new megawidget:
+	frame $w -class ITMConsole
+	grid [text $w.t -wrap none -font "Monospace 9" -exportselection true \
+		-background black -foreground #AAAAAA \
+		-yscrollcommand [list $w.v set] -xscrollcommand [list $w.h set]] \
+		[ttk::scrollbar $w.v -orient vertical -command [list $w.t yview]] \
+		-sticky news
+	grid [ttk::scrollbar $w.h -orient horizontal -command [list $w.t xview]] -sticky news
+	grid rowconfigure $w 0 -weight 1
+	grid columnconfigure $w 0 -weight 1
+	
+	set self(w:top)		$w
+	set self(w:sh)		$w.t
+
+	$w.t tag configure std -foreground #AAAAAA
+#	$w.t mark set epos 1.0
+	
+	# connect to port 5555
+	set self(data:io) [socket -async localhost $self(port)]
+	chan configure $self(data:io) -blocking 0 -encoding binary -translation binary -buffering none
+#	chan configure $self(data:io) -blocking 0 -encoding binary -translation binary -buffering full -buffersize 4096
+	chan event $self(data:io) readable [list ::ITMConsole::receive $obj]
+	
+	bindtags $w.t [list $w ITMConsole . all]
+	focus $w.t
+}
+
+proc ITMConsole::hexadata {obj data} {
+	upvar $obj self
+	set t $self(w:sh)
+	
+	foreach ch [split $data {}] {
+		binary scan $ch c1 value
+		set value [expr ($value + 0x100) % 0x100]
+		regsub -all "\[\x00-\x1F\\x7F-\xFF]" $ch "." ch
+		if { $self(count) % 16 == 0 } {
+			if { $self(count) != 0 } {
+				$t insert end \n
+			}
+			$t insert end [format "%08X: " $self(count)]
+		}
+		incr self(count)
+		$t insert end [format "%02X " $value]
+	}
+}
+
+proc ITMConsole::insertdata {obj data} {
+	variable ANSIColor
+	upvar $obj self
+	set t $self(w:sh)
+	
+	set startidx	0
+	
+	while {1} {
+#		puts $startidx
+		if {[regexp -start $startidx -indices {\x1b\[(?:(\d{1,2});)?(\d{1,2})?([ABCDFHm])} $data res val1 val2 val3]} {
+			$t insert end [encoding convertfrom utf-8 [string range $data $startidx [lindex $res 0]-1]] $self(tagcur)
+			set v1 [string range $data [lindex $val1 0] [lindex $val1 1]]
+			set v2 [string range $data [lindex $val2 0] [lindex $val2 1]]
+			set v3 [string range $data [lindex $val3 0] [lindex $val3 1]]
+		#	puts "$res / $val1 / $val2 / $val3"
+		#	puts -nonewline "-- $v3 --> "
+			switch -- $v3 {
+				A { puts "$v2 Up" }
+				B { puts "$v2 Down" }
+				C { puts "$v2 Right" }
+				D { puts "$v2 Left" }
+				F { puts "EOL" }
+				H { puts "SOL" }
+				m {
+				#	puts "set color: $v1, $v2"
+					if {$v2 == 0} {
+						set self(tagcur) std
+						set self(tagprop) {}
+						puts "standard options"
+					} else {
+						if {$v1 == "" || $v1 == 2} {
+							set v1 2
+						}
+						set backg 0
+						if {$v2 >=40} {
+							set backg 1
+							set v2 [expr $v2 - 10]
+						}
+						set col [dict get $ANSIColor $v1 $v2]
+					#	puts "[lindex $col 0] --> [lindex $col 1]"
+						if {$backg} {
+							if {$self(tagcur) != "std" && ![lsearch $self(tagprop) background]} {
+								# tag has not the background property
+								$t tag configure $self(tagcur) -background [lindex $col 1]
+								puts "bg tag=$self(tagcur)"
+							} else {
+								# create a new tag and add the background property
+								$t tag configure tg$self(tagcnt) -background [lindex $col 1]
+								set self(tagcur) tg$self(tagcnt)
+								lappend self(tagprop) foreground
+								incr self(tagcnt)
+								puts "new bg tag=$self(tagcur)"
+							}
+						} else {
+							if {$self(tagcur) != "std" && ![lsearch $self(tagprop) foreground]} {
+								# tag has not the foreground property
+								$t tag configure $self(tagcur) -foreground [lindex $col 1]
+								puts "fg tag=$self(tagcur)"
+							} else {
+								# create a new tag and add the background property
+								$t tag configure tg$self(tagcnt) -foreground [lindex $col 1]
+								set self(tagcur) tg$self(tagcnt)
+								lappend self(tagprop) foreground
+								incr self(tagcnt)
+								puts "new fg tag=$self(tagcur)"
+							}
+						}
+					}
+				}
+				H {puts "gotoXY: $v1, $v2"}
+			}
+		} else {
+			$t insert end [encoding convertfrom utf-8 [string range $data $startidx end]] $self(tagcur)
+			break
+		}
+		set startidx [expr [lindex $res 1] +1]
+	}
+}
+
+proc ITMConsole::receive {obj} {
+	upvar $obj self
+
+	set data [chan read $self(data:io)]
+	if {[string length $data] == 0} {
+		if {[eof $self(data:io)]} {
+			chan event $self(data:io) r {}
+			close $self(data:io)
+			puts "channel closed"
+			exit $obj
+		}
+		return
+	}
+	incr self(cnt)
+#	regsub -all "\[\x00-\x09\x1b-\x1F\]" $data "" data
+	puts "RCVD $self(cnt): $data"
+	set t $self(w:sh)
+#	hexadata $obj $data
+#	$t insert end [encoding convertfrom utf-8 $data]
+	insertdata $obj $data
+	set self(epos) [$t index insert]
+	$t see insert
+}
+
+if {[info script] == $argv0} {
+	wm title . "ITM Console"
+	pack [console .console -port [lindex $argv 0]] -expand yes -fill both
+	puts [bindtags .console]
+
+}
