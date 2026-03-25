@@ -39,24 +39,30 @@ int servo_state = 0;
 #define STEPPER_HIGH_SPEED			450.0f	/* mm/s */
 #define STEPPER_ACCEL				5000.0f	/* mm/s² */
 
-#define STEPPER_INIT_FREQ			3000	/* Hz */
+#define STEPPER_INIT_FREQ			500	/* Hz */
 
 stepper_t stepper = {
 	.max_pos_mm		= 320.0f,	/* maximum linear distance */
 	.d_pulley_mm	= 12.7f,	/* pulley diameter */
 	.steps_per_rev	= 200,		/* number of steps per revolution */
-	.usteps			= 32,		/* number of microsteps per step */
+	.usteps			= 32,
+	.nsteps			= 1,		/* number of microsteps per step */
 	
 	.tmr 			= (TIM_t *)TIM1_BASE		/* timer used */
 };
 
 float speed_low=STEPPER_LOW_SPEED, speed_high=STEPPER_HIGH_SPEED, accel=STEPPER_ACCEL;
+// Place ceci en haut de ton fichier, après tes #include et #define
+#define g_stepper_ptr &stepper
 
 /**** limit switch sensor callback ******************************/
 void fc_cb(void)
 {
 	// when at end position get 50 steps forward
+	stepper_stop(&stepper);
+	stepper_run(&stepper, 50, true);
 }
+
 
 /****************************************************************
  * Command handling
@@ -98,6 +104,7 @@ void cmd_process(char *buf)
 		solenoid(OFF);
 		servo_position(THETA1);
 		stepper_init(&stepper,STEPPER_INIT_FREQ);
+		stepper_init_mm(&stepper, speed_low, speed_high, accel, STEPPER_MODE_TRAPEZOIDAL);
 		// go to stop position
 		stepper_run(&stepper,-1,true);
 		break;
@@ -105,6 +112,7 @@ void cmd_process(char *buf)
         term_printf("Executing test command T...\r\n");
         solenoid(ON);
         term_printf("Solenoid ON\r\n");
+		delay_ms(1000);
 
         servo_position(170);
         term_printf("Servo at 170°\r\n");
@@ -112,17 +120,46 @@ void cmd_process(char *buf)
 
 		servo_position(80);
         term_printf("Servo at 100°\r\n");
-		delay_ms(500);
+		delay_ms(10000);
 		
         solenoid(OFF);
         term_printf("Solenoid OFF\r\n");
         term_printf("Test T completed\r\n");
         break;
-	default:
-//		term_printf("\r\nUnknown command\r\n");
-		break;
-	}
-}
+	case 'S':   // TEST stepper - simple test
+        term_printf("Executing stepper test command S...\r\n");
+        term_printf("Test: Moving stepper with basic profile\r\n");
+        
+        // Initialize stepper at fixed frequency
+        stepper_init(&stepper, STEPPER_INIT_FREQ);
+        term_printf("Stepper initialized at %d Hz\r\n", STEPPER_INIT_FREQ);
+        
+        // Run forward 50mm
+        term_printf("Moving forward 50mm...\r\n");
+        stepper_run_mm(&stepper, 50.0f);
+        
+        // Wait for completion
+        while(stepper_busy(&stepper)) {
+            delay_ms(50);
+        }
+        
+        term_printf("Position: %.2f mm\r\n", stepper_pos_mm(&stepper));
+        delay_ms(500);
+        
+        // Run backward 50mm
+        term_printf("Moving backward 50mm...\r\n");
+        stepper_run_mm(&stepper, -50.0f);
+        
+        while(stepper_busy(&stepper)) {
+            delay_ms(50);
+        }
+        
+        term_printf("Final position: %.2f mm\r\n", stepper_pos_mm(&stepper));
+        term_printf("Test S completed\r\n");
+        break;
+        
+	
+}}
 
 /****************************************************************
  * Main
@@ -144,12 +181,24 @@ int main(void)
 	solenoid_init();
 	//solenoid(ON);     // active le solénoïde
 	
-	
 	servo_init();
-	// stepper_init(&stepper,STEPPER_INIT_FREQ);
+	
+	stepper_init_mm(&stepper, 20.0f, 50.0f, 100.0f, STEPPER_MODE_TRAPEZOIDAL);
+    
+
+
+
+
+
+
+
+
+
+
+
 	
 	/* Boucle d'événements pour les commandes interactives */
-	term_printf("System ready. Type 'T' for servo test or 'R' for reset.\r\n");
+	term_printf("System ready. Type 'T' for servo test, 'S' for stepper test or 'R' for reset.\r\n");
 	term_printf("> ");
 	while (1){
 		Event_t evt;
