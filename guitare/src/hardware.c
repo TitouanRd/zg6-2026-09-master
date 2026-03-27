@@ -186,7 +186,9 @@ void stepper_init(stepper_t *stepper, int freq)
 
 
 	// limit switch sensor : irq rising sur PC9
-	//io_configure(FC_GPIO_PORT, FC_GPIO_PIN, FC_GPIO_CFG, fc_cb);
+
+	
+	io_configure(FC_GPIO_PORT, FC_GPIO_PIN, FC_GPIO_CFG, fc_cb);
 }
 
 /* stepper pos in mm */

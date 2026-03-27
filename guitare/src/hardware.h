@@ -69,6 +69,7 @@ typedef struct _stepper_t {
 //	func_cfg_t		cfg_f;				/* config function (for PWM pin) */
 } stepper_t;
 
+void fc_cb(void);
 void stepper_init(stepper_t *stepper, int freq);
 void stepper_run(stepper_t *stepper, int32_t nsteps, bool freerun);
 

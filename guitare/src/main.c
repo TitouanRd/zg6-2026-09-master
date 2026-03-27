@@ -39,7 +39,7 @@ int servo_state = 0;
 #define STEPPER_HIGH_SPEED			450.0f	/* mm/s */
 #define STEPPER_ACCEL				5000.0f	/* mm/s² */
 
-#define STEPPER_INIT_FREQ			500	/* Hz */
+#define STEPPER_INIT_FREQ			3000	/* Hz */
 
 stepper_t stepper = {
 	.max_pos_mm		= 320.0f,	/* maximum linear distance */
@@ -60,7 +60,6 @@ void fc_cb(void)
 {
 	// when at end position get 50 steps forward
 	stepper_stop(&stepper);
-	stepper_run(&stepper, 50, true);
 }
 
 
@@ -126,7 +125,7 @@ void cmd_process(char *buf)
         term_printf("Solenoid OFF\r\n");
         term_printf("Test T completed\r\n");
         break;
-	case 'S':   // TEST stepper - simple test
+	case '6':   // TEST stepper - simple test
         term_printf("Executing stepper test command S...\r\n");
         term_printf("Test: Moving stepper with basic profile\r\n");
         
@@ -134,20 +133,29 @@ void cmd_process(char *buf)
         stepper_init(&stepper, STEPPER_INIT_FREQ);
         term_printf("Stepper initialized at %d Hz\r\n", STEPPER_INIT_FREQ);
         
+
         // Run forward 50mm
         term_printf("Moving forward 50mm...\r\n");
         stepper_run_mm(&stepper, 50.0f);
         
-        // Wait for completion
         while(stepper_busy(&stepper)) {
             delay_ms(50);
         }
         
-        term_printf("Position: %.2f mm\r\n", stepper_pos_mm(&stepper));
-        delay_ms(500);
+        term_printf("Final position: %.2f mm\r\n", stepper_pos_mm(&stepper));
+        term_printf("Test S completed\r\n");
+        break;
+	case '4':   // TEST stepper - simple test
+        term_printf("Executing stepper test command S...\r\n");
+        term_printf("Test: Moving stepper with basic profile\r\n");
         
-        // Run backward 50mm
-        term_printf("Moving backward 50mm...\r\n");
+        // Initialize stepper at fixed frequency
+        stepper_init(&stepper, STEPPER_INIT_FREQ);
+        term_printf("Stepper initialized at %d Hz\r\n", STEPPER_INIT_FREQ);
+        
+
+        // Run forward 50mm
+        term_printf("Moving forward 50mm...\r\n");
         stepper_run_mm(&stepper, -50.0f);
         
         while(stepper_busy(&stepper)) {
@@ -156,6 +164,58 @@ void cmd_process(char *buf)
         
         term_printf("Final position: %.2f mm\r\n", stepper_pos_mm(&stepper));
         term_printf("Test S completed\r\n");
+        break;
+
+	case 'p':   // TEST stepper - simple test
+       
+        stepper_init(&stepper, STEPPER_INIT_FREQ);
+        term_printf("Stepper initialized at %d Hz\r\n", STEPPER_INIT_FREQ);
+        
+
+        // Run forward 50mm
+        term_printf("Moving forward 50mm...\r\n");
+        stepper_run_mm(&stepper, 5.0f);
+        
+        while(stepper_busy(&stepper)) {
+            delay_ms(50);
+        }
+        
+        term_printf("Final position: %.2f mm\r\n", stepper_pos_mm(&stepper));
+      
+        break;
+
+	case 'S':   // TEST stepper - simple test
+        term_printf("Executing stepper test command S...\r\n");
+        term_printf("Test: Moving stepper with basic profile\r\n");
+        
+        // Initialize stepper at fixed frequency
+        stepper_init(&stepper, STEPPER_INIT_FREQ);
+        term_printf("Stepper initialized at %d Hz\r\n", STEPPER_INIT_FREQ);
+        
+		while(1){
+        // Run forward 50mm
+        term_printf("Moving forward 50mm...\r\n");
+        stepper_run_mm(&stepper, -50.0f);
+        
+        while(stepper_busy(&stepper)) {
+            delay_ms(50);
+        }
+
+		term_printf("Moving forward -50mm...\r\n");
+        stepper_run_mm(&stepper, 50.0f);
+        
+        while(stepper_busy(&stepper)) {
+            delay_ms(50);
+        }
+	}
+        
+        term_printf("Final position: %.2f mm\r\n", stepper_pos_mm(&stepper));
+        term_printf("Test S completed\r\n");
+        break;
+
+	case ' ':   // TEST stepper - simple test
+        stepper_stop(&stepper);
+        term_printf("pas/pas stoppé\r\n");
         break;
         
 	
