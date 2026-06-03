@@ -94,6 +94,11 @@ int pwm_channel_disable(PWM_t *tmr, uint32_t channel);
  */
 int pwm_channel_set(PWM_t *tmr, uint32_t channel, float dutycycle);
 
+/* pwm_channel_set_freq_duty
+ *   set frequency according to reg_cfg param, and dutycycle
+ */
+int pwm_channel_set_freq_duty(PWM_t *tmr, uint32_t channel, float dutycycle, const pwm_cfg_regs_t *regs);
+
 /* pwm_start
  *   start counting
  */

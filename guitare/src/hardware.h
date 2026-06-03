@@ -10,8 +10,8 @@
  * servo_init(void): pin and timer initialization
  * servo_position(int theta) : set the angle theta [°]
  */
-#define THETA1						135
-#define THETA2						155
+#define THETA1						125
+#define THETA2						165
 
 void servo_init(void);
 void servo_position(int theta);
@@ -69,7 +69,6 @@ typedef struct _stepper_t {
 //	func_cfg_t		cfg_f;				/* config function (for PWM pin) */
 } stepper_t;
 
-void fc_cb(void);
 void stepper_init(stepper_t *stepper, int freq);
 void stepper_run(stepper_t *stepper, int32_t nsteps, bool freerun);
 

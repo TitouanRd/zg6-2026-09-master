@@ -45,23 +45,73 @@ stepper_t stepper = {
 	.max_pos_mm		= 320.0f,	/* maximum linear distance */
 	.d_pulley_mm	= 12.7f,	/* pulley diameter */
 	.steps_per_rev	= 200,		/* number of steps per revolution */
-	.usteps			= 32,
-	.nsteps			= 1,		/* number of microsteps per step */
+	.usteps			= 32,		/* number of microsteps per step */
 	
 	.tmr 			= (TIM_t *)TIM1_BASE		/* timer used */
 };
 
 float speed_low=STEPPER_LOW_SPEED, speed_high=STEPPER_HIGH_SPEED, accel=STEPPER_ACCEL;
-// Place ceci en haut de ton fichier, après tes #include et #define
-#define g_stepper_ptr &stepper
+static bool limit = false;
 
 /**** limit switch sensor callback ******************************/
 void fc_cb(void)
 {
-	// when at end position get 50 steps forward
+	limit = true;
 	stepper_stop(&stepper);
 }
 
+/****************************************************************
+ * Measure distance to endstop by stepping -5 mm until limit switch hits
+ ****************************************************************/
+void measure_stepper_to_endstop(void)
+{
+	const float step_mm = 5.0f;
+	limit = false;
+	stepper_pos_reset(&stepper);
+	term_printf("\r\nMoving in steps of -%.2f mm until endstop...\r\n", step_mm);
+
+	while (!limit) {
+		stepper_run_mm(&stepper, step_mm);
+		while (stepper_busy(&stepper)) {
+			delay_ms(10);
+		}
+		if (!limit) {
+			term_printf("Moved %.2f mm, still not at endstop...\r\n", step_mm);
+		}
+	}
+
+	float distance = stepper_pos_mm(&stepper);
+	term_printf("Endstop reached. Total distance = %.2f mm\r\n", distance);
+}
+
+/****************************************************************
+ * PWM test for oscilloscope verification
+ ****************************************************************/
+void test_pwm_signals(void)
+{
+	term_printf("\r\n========================================\r\n");
+	term_printf("PWM Signal Test for Oscilloscope\r\n");
+	term_printf("========================================\r\n");
+	
+	// Initialize servo PWM (50 Hz, 5% duty)
+	term_printf("Initializing SERVO PWM (50 Hz, 5%% duty)...\r\n");
+	term_printf("  Pin: PB4 (TIM4 CH1)\r\n");
+	servo_init();
+	
+	// Initialize stepper PWM (3000 Hz, 50% duty)
+	term_printf("Initializing STEPPER PWM (%d Hz, 50%% duty)...\r\n", STEPPER_INIT_FREQ);
+	term_printf("  Pin: PA8 (TIM1 CH1)\r\n");
+	stepper_init(&stepper, STEPPER_INIT_FREQ);
+	
+	// Start stepper motor PWM (freerun mode, 1 step)
+	stepper_run(&stepper, 1, true);
+	
+	term_printf("\r\nBoth PWM signals are now RUNNING:\r\n");
+	term_printf("  SERVO (PB4):  50 Hz, 5%% duty cycle\r\n");
+	term_printf("  STEP (PA8):   %d Hz, 50%% duty cycle\r\n", STEPPER_INIT_FREQ);
+	term_printf("\r\nPress SPACE to stop signals\r\n");
+	term_printf("========================================\r\n");
+}
 
 /****************************************************************
  * Command handling
@@ -91,22 +141,32 @@ bool cmd_append_done(char *buf, int len, char c)
  */
 void cmd_process(char *buf)
 {
+
+	//ici c'est pour def les tests.
 	int val;
 	float mm;
 	
 	switch (buf[0]) {
 	case 'R':
 		app_state = APP_RESET;
-		// limit switch sensor : irq rising sur PC9
+		// limit switch sensor : irq rising sur PB0
 		io_configure(FC_GPIO_PORT, FC_GPIO_PIN, FC_GPIO_CFG, fc_cb);
 		
 		solenoid(OFF);
 		servo_position(THETA1);
 		stepper_init(&stepper,STEPPER_INIT_FREQ);
-		stepper_init_mm(&stepper, speed_low, speed_high, accel, STEPPER_MODE_TRAPEZOIDAL);
 		// go to stop position
-		stepper_run(&stepper,-1,true);
+		//stepper_run(&stepper,-1,true);
 		break;
+
+	case 'm':
+		app_state = APP_RESET;
+		
+		solenoid(ON);
+		delay_ms(1000);
+		solenoid(OFF);
+		break;
+
 	case 'T':   // TEST servo
         term_printf("Executing test command T...\r\n");
         solenoid(ON);
@@ -119,7 +179,7 @@ void cmd_process(char *buf)
 
 		servo_position(80);
         term_printf("Servo at 100°\r\n");
-		delay_ms(10000);
+		delay_ms(100);
 		
         solenoid(OFF);
         term_printf("Solenoid OFF\r\n");
@@ -166,22 +226,10 @@ void cmd_process(char *buf)
         term_printf("Test S completed\r\n");
         break;
 
-	case 'p':   // TEST stepper - simple test
-       
+	case 'p':   // Measure distance to endstop by stepping -5 mm
+        term_printf("Executing endstop measurement...\r\n");
         stepper_init(&stepper, STEPPER_INIT_FREQ);
-        term_printf("Stepper initialized at %d Hz\r\n", STEPPER_INIT_FREQ);
-        
-
-        // Run forward 50mm
-        term_printf("Moving forward 50mm...\r\n");
-        stepper_run_mm(&stepper, 5.0f);
-        
-        while(stepper_busy(&stepper)) {
-            delay_ms(50);
-        }
-        
-        term_printf("Final position: %.2f mm\r\n", stepper_pos_mm(&stepper));
-      
+        measure_stepper_to_endstop();
         break;
 
 	case 'S':   // TEST stepper - simple test
@@ -217,9 +265,17 @@ void cmd_process(char *buf)
         stepper_stop(&stepper);
         term_printf("pas/pas stoppé\r\n");
         break;
+
+	/*case 'o':   // PWM signals for oscilloscope verification
+		test_pwm_signals();
+		break;*/
         
 	
-}}
+	default:
+		term_printf("\r\nUnknown command\r\n");
+		break;
+	}
+}
 
 /****************************************************************
  * Main
@@ -235,30 +291,17 @@ int main(void)
 	term_clrscr();
 	term_color(CL_DEFAULT,CL_NORMAL,CL_NORMAL);
 	
-	// limit switch sensor : irq rising sur PC9
+	// limit switch sensor : irq rising sur PB0
 	io_configure(FC_GPIO_PORT, FC_GPIO_PIN, FC_GPIO_CFG, fc_cb);
 	
 	solenoid_init();
-	//solenoid(ON);     // active le solénoïde
-	
 	servo_init();
+	stepper_init(&stepper,STEPPER_INIT_FREQ);
+	//stepper_init_mm(&stepper, 20.0f, 50.0f, 100.0f, STEPPER_MODE_TRAPEZOIDAL);
 	
-	stepper_init_mm(&stepper, 20.0f, 50.0f, 100.0f, STEPPER_MODE_TRAPEZOIDAL);
-    
-
-
-
-
-
-
-
-
-
-
-
-	
-	/* Boucle d'événements pour les commandes interactives */
-	term_printf("System ready. Type 'T' for servo test, 'S' for stepper test or 'R' for reset.\r\n");
+	// go to stop position
+	//stepper_run(&stepper,-1,true);
+		
 	term_printf("> ");
 	while (1){
 		Event_t evt;

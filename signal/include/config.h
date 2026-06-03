@@ -62,32 +62,6 @@
  * GPIO Pin and use configuration 
  ****************************************************************************/
 
-#define FC_GPIO_PORT			_GPIOC
-#define FC_GPIO_PIN	    		PIN_9
-#define FC_GPIO_CFG				PIN_MODE_INPUT|PIN_OPT_IRQ_EDGE_RISE
-
-#define SOLENOID_GPIO_PORT		_GPIOC
-#define SOLENOID_GPIO_PIN		PIN_8
-#define SOLENOID_GPIO_CFG		PIN_MODE_OUTPUT|PIN_OPT_RESISTOR_PULLDOWN|PIN_OPT_OUTPUT_SPEED_HIGH
-
-#define SERVO_GPIO_PORT			_GPIOB
-#define SERVO_GPIO_PIN			PIN_6
-#define SERVO_GPIO_CFG			PIN_MODE_ALTFUNC|PIN_OPT_AF2
-
-#define STSTEP_GPIO_PORT		_GPIOA
-#define STSTEP_GPIO_PIN			PIN_8
-#define STSTEP_GPIO_CFG			PIN_MODE_ALTFUNC|PIN_OPT_AF1
-
-#define STDIR_GPIO_PORT			_GPIOA
-#define STDIR_GPIO_PIN			PIN_9
-#define STDIR_GPIO_CFG			PIN_MODE_OUTPUT
-
-#define STEN_GPIO_PORT			_GPIOC
-#define STEN_GPIO_PIN			PIN_7
-#define STEN_GPIO_CFG			PIN_MODE_OUTPUT
-
-
-
 #ifdef USE_LCD
 	#if defined(LCD_ST7789)
 		// LCD_BL=PC7, LCD_CS=PB6, LCD_DC=PA8, SD_CS=PB4, TS_CS=PB5, TS_IRQ=PB3
@@ -246,10 +220,10 @@
 //#define ADC1_GPIO_PORT	
 //#define ADC1_GPIO_PINS	
 //#define ADC1_GPIO_CFG		
-// ADC1: ADC1_0 --> PA0, ADC1_1 -->PA1
+// ADC1: ADC1_0 --> PA0
 #define USE_ADC1
 #define ADC1_GPIO_PORT		_GPIOA
-#define ADC1_GPIO_PINS		PIN_0|PIN_1
+#define ADC1_GPIO_PINS		PIN_0
 #define ADC1_GPIO_CFG		PIN_MODE_ANALOG
 
 /****************************************************************************

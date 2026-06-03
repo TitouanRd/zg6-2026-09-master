@@ -20,7 +20,7 @@ USE_NEWLIB_NANO_FLOAT_IO = 1
 USE_SEMIHOST=0
 
 # Use Segger Real Time Transfer (RTT)
-USE_RTT=1
+USE_RTT=0
 
 # List all user C define here
 UDEFS = -DSTM32F411xE -DARM_MATH_CM4 -DTEST_PERF
@@ -31,7 +31,7 @@ UADEFS =
 # List C source files here
 SRC  = startup/stm32f411_periph.c startup/sys_handlers.c \
        startup/rcc.c startup/system_stm32f4xx.c \
-       src/main.c src/hardware.c
+       src/main.c
 
 # List ASM source files here
 ASRC = startup/startup_stm32f411xe.s

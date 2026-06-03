@@ -199,7 +199,7 @@ int _gettimeofday (struct timeval* tp, struct timezone* tzp) {
     tzp->tz_minuteswest = 0;
     tzp->tz_dsttime = 0;
   }
-  tp->tv_sec=947846794;
+  tp->tv_sec=0;
   tp->tv_usec=0;
   return 0;
 }

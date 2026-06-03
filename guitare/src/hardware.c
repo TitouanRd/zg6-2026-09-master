@@ -19,38 +19,38 @@
 /*** servo_init(void) : pin and timer initialization */
 void servo_init(void)
 {
-    // PB6 → TIM4 CH1
-    io_configure(SERVO_GPIO_PORT, SERVO_GPIO_PIN, SERVO_GPIO_CFG, NULL);
+	// SERVO : TIM3 CH1 in PWM mode : PB4 (AF02)
+	io_configure(SERVO_GPIO_PORT, SERVO_GPIO_PIN, SERVO_GPIO_CFG, NULL);
 
-    // Init PWM à 50 Hz
-    pwm_init(_TIM4, 50, NULL, NULL);
+	 // Init PWM à 50 Hz
+    pwm_init(_TIM3, 50, NULL, NULL);
 
-    // Activer canal 1 avec position neutre (7.5%)
-    pwm_channel_enable(_TIM4, PWM_CHANNEL_1, 7.5f, 1);
+    // Activer canal 1 avec position neutre (95%)
+    pwm_channel_enable(_TIM3, PWM_CHANNEL_1, 95, 1);
 
-	
 
-    // Démarrer
-    pwm_start(_TIM4);
+	// start the SERVO
+	pwm_start(_TIM3);
 }
 
 /*** servo_position(int theta) : set the angle theta [°] */
 void servo_position(int theta)
 {
-    if(theta < 0) theta = 0;
+	if(theta < 0) theta = 0;
     if(theta > 180) theta = 180;
 
     // Conversion angle → duty cycle (%)
     float duty = 2.5f + ((float)theta * (12.5f - 2.5f)) / 180.0f;
 
-    pwm_channel_enable(_TIM4, PWM_CHANNEL_1, duty, 1);
+    pwm_channel_enable(_TIM3, PWM_CHANNEL_1, 100-duty, 1);
+	//pwm_channel_set(_TIM3, PWM_CHANNEL_1, duty);
 }
 
 /**** solenoid **************************************************/
 /* solenoid_init : setup required pin */
 void solenoid_init(void)
 {
-	// SOLENOID : broche PC8 en GPIO
+	// SOLENOID : broche PB0 en GPIO
 	io_configure(SOLENOID_GPIO_PORT, SOLENOID_GPIO_PIN, SOLENOID_GPIO_CFG, NULL);
 }
 
@@ -76,9 +76,10 @@ void solenoid(bool on)
 
 static pwm_cfg_regs_t cfg_regs[MAX_ACCEL_STEPS];
 
-static void stepper_cb(void *ctx)
+/* called from */
+static void stepper_cb(void *ptr)
 {
-	stepper_t *stepper = (stepper_t *)ctx;
+	stepper_t *stepper = (stepper_t *)ptr;
 
 	// Mise à jour de la position absolue
 	if (io_read(STDIR_GPIO_PORT, STDIR_GPIO_PIN)) {
@@ -104,9 +105,9 @@ static void stepper_cb(void *ctx)
 void stepper_en(stepper_t *stepper, bool on)
 {
 	if (on) {
-		io_clear(STEN_GPIO_PORT, STEN_GPIO_PIN);
-	} else {
 		io_set(STEN_GPIO_PORT, STEN_GPIO_PIN);
+	} else {
+		io_clear(STEN_GPIO_PORT, STEN_GPIO_PIN);
 	}
 }
 
@@ -162,7 +163,6 @@ void stepper_run(stepper_t *stepper, int32_t nsteps, bool freerun)
 	pwm_start((TIM_t *)stepper->tmr);
 }
 
-
 /*** stepper_init
  *  setup peripherals to run the stepper motor at freq [steps/s] or [Hz]
  */
@@ -171,24 +171,22 @@ void stepper_init(stepper_t *stepper, int freq)
 	stepper->pos = 0;
 	stepper->flags = 0;
 	stepper->nusteps = 0;
+	stepper->steps_per_mm = (float)stepper->steps_per_rev / (M_PI * stepper->d_pulley_mm);
 	
 	// STEPPER MOTOR [DIR]  : PA9 en output 
 	io_configure(STDIR_GPIO_PORT, STDIR_GPIO_PIN, STDIR_GPIO_CFG, NULL);
 
 	// STEPPER MOTOR [EN ]  : PC7 en output
 	io_configure(STEN_GPIO_PORT, STEN_GPIO_PIN, STEN_GPIO_CFG, NULL);
-	io_set(STEN_GPIO_PORT, STEN_GPIO_PIN);
+	io_clear(STEN_GPIO_PORT, STEN_GPIO_PIN);
 
 	// STEPPER MOTOR [STEP] : TIM1 CH1 en PWM : PA8 (AF01)
 	io_configure(STSTEP_GPIO_PORT, STSTEP_GPIO_PIN, STSTEP_GPIO_CFG, NULL);
 	pwm_init(_TIM1, freq, stepper_cb, stepper);
 	pwm_channel_enable(_TIM1, PWM_CHANNEL_1, STEPPER_DUTY, 1);
 
-
 	// limit switch sensor : irq rising sur PC9
-
-	
-	io_configure(FC_GPIO_PORT, FC_GPIO_PIN, FC_GPIO_CFG, fc_cb);
+	//io_configure(FC_GPIO_PORT, FC_GPIO_PIN, FC_GPIO_CFG, fc_cb);
 }
 
 /* stepper pos in mm */
@@ -208,7 +206,7 @@ void stepper_run_mm(stepper_t *stepper, float mm)
 }
 
 /* stepper_init_mm 
- * - stepper : stepper handling structure 
+ * - stepper : stepper handling structure
  * - vel0    : low speed [mm/s]
  * - vel1    : high speed [mm/s]
  * - accel   : acceleration [mm/s²]
@@ -239,3 +237,4 @@ void stepper_init_mm(stepper_t *stepper, float vel0, float vel1, float accel, ui
 		stepper->k_accel = 0;
 	}
 }
+

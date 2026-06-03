@@ -14,7 +14,6 @@
 #include "lib/term.h"
 #include "lib/util.h"
 #include "lib/adc.h"
-#include "hardware.h"
 #include "liblcd/lcd.h"
 #include "liblcd/graph.h"
 
@@ -24,44 +23,6 @@
 
 
 #ifdef MAIN1
-/****************************************************************
- * App state
- */
-typedef enum {
-	APP_RESET,
-	APP_READY,
-	APP_PLAYING,
-} app_state_t;
-
-app_state_t app_state = APP_RESET;
-
-int servo_state = 0;
-
-/****************************************************************
- * Stepper
- ****************************************************************/
-#define STEPPER_LOW_SPEED			20.0f	/* mm/s */
-#define STEPPER_HIGH_SPEED			450.0f	/* mm/s */
-#define STEPPER_ACCEL				5000.0f	/* mm/s² */
-
-#define STEPPER_INIT_FREQ			3000	/* Hz */
-
-stepper_t stepper = {
-	.max_pos_mm		= 320.0f,	/* maximum linear distance */
-	.d_pulley_mm	= 12.7f,	/* pulley diameter */
-	.steps_per_rev	= 200,		/* number of steps per revolution */
-	.usteps			= 32,		/* number of microsteps per step */
-	
-	.tmr 			= (TIM_t *)TIM1_BASE		/* timer used */
-};
-
-float speed_low=STEPPER_LOW_SPEED, speed_high=STEPPER_HIGH_SPEED, accel=STEPPER_ACCEL;
-
-/**** limit switch sensor callback ******************************/
-void fc_cb(void)
-{
-
-}
 
 /****************************************************************
  * ADC variables & callback
@@ -99,9 +60,12 @@ static void on_smpl_buf_cb(uint32_t stream, uint32_t bufid)
 	else io_clear(_GPIOA,PIN_10);
 	state=!state;
 #endif
-
-	/* ... */
-}
+	Event_t evt;
+	evt.type = ADC_DMA_EVT;
+	evt.adc_dma.id = (uint16_t)bufid;
+	evt.adc_dma.size = SMPLBUFSIZE;
+	push_event(&evt);
+	}
 
 float fft_input[SMPLBUFSIZE];
 float fft_output[SMPLBUFSIZE];
@@ -141,17 +105,6 @@ void cmd_process(char *buf)
 	float mm;
 	
 	switch (buf[0]) {
-	case 'R':
-		app_state = APP_RESET;
-		// limit switch sensor : irq rising sur PC9
-		io_configure(FC_GPIO_PORT, FC_GPIO_PIN, FC_GPIO_CFG, fc_cb);
-		
-		solenoid(OFF);
-		servo_position(THETA1);
-		stepper_init(&stepper,STEPPER_INIT_FREQ);
-		// go to stop position
-		stepper_run(&stepper,-1,true);
-		break;
 	default:
 //		term_printf("\r\nUnknown command\r\n");
 		break;
@@ -165,6 +118,8 @@ int main(void)
 {
 	real *mx, *mX;	// pointer to signal and spectrum array
 	
+	timer_wait_ms(_TIM3,1000);	// to allow lcd screen to be ready
+
 #ifdef TEST_PERF
 	// PA10 --> output
 	io_configure(_GPIOA,PIN_10,PIN_MODE_OUTPUT,NULL);
@@ -180,16 +135,6 @@ int main(void)
 	term_clrscr();
 	term_color(CL_DEFAULT,CL_NORMAL,CL_NORMAL);
 	
-#if USE_STEPPER
-	// limit switch sensor : irq rising sur PC9
-	io_configure(FC_GPIO_PORT, FC_GPIO_PIN, FC_GPIO_CFG, fc_cb);
-	
-	solenoid_init();
-	servo_init();
-	stepper_init(&stepper,STEPPER_INIT_FREQ);
-	stepper_run(&stepper,-1,true);	// go to stop position
-#endif
-		
 	// Set sampling period TS
 	timer_tick_init_us(_TIM2, TS, NULL, NULL);
 	
@@ -248,6 +193,11 @@ int main(void)
 	glabel("f [Hz]",G_XLABEL); glabel("|X(f)|",G_YLABEL);
 #endif
 
+	arm_status arm_status = arm_rfft_fast_init_f32(&fft_instance, SMPLBUFSIZE);
+	if (arm_status != ARM_MATH_SUCCESS) {
+		while(1);
+		}
+
 	// start sampling
 	timer_start(_TIM2);
 	
@@ -260,10 +210,6 @@ int main(void)
 			if (!cmd_append_done(buf,BUF_MAX_LEN,evt.key.c)) break;
 			cmd_process(buf);
 			uart_puts(_USART2, "\r\n> ");
-			break;
-		case STEPPER_EVT:
-			break;
-		case TIMER_EVT:
 			break;
 		case ADC_DMA_EVT:
 #ifdef TEST_PERF
@@ -283,6 +229,12 @@ int main(void)
 			/* FFT */
 //			arm_rfft_fast_f32();
 //			arm_cmplx_mag_f32();
+			for (int i=0; i<SMPLBUFSIZE; i++){
+				fft_input[i]=(float)data[i+evt.adc_dma.id*SMPLBUFSIZE];}
+
+			arm_rfft_fast_f32(&fft_instance, fft_input, fft_output, 0);
+			arm_cmplx_mag_f32(fft_output, mag_out, SMPLBUFSIZE/2);
+			
 
 #ifdef USE_LCD
 			/* frequency plot */
