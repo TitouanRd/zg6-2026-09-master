@@ -1,0 +1,15 @@
+#! arm-none-eabi-gdb
+target extended-remote localhost:3333
+load
+monitor reset halt
+tbreak HardFault_Handler
+tbreak _exit
+tbreak main
+continue
+# RTT config
+#monitor rtt setup 0x20000000 4096 "SEGGER RTT"
+#monitor rtt start
+#monitor rtt channels
+#monitor rtt polling_interval
+#monitor rtt server start 5555 0
+#cons 5555 &
